@@ -39,9 +39,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
     # LLM settings
-    OPENROUTER_API_KEY: str = ""
-    DEFAULT_LLM_MODEL: str = "openai/gpt-4o-mini"
+    OPENROUTER_API_KEY: str = "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"
+    DEFAULT_LLM_MODEL: str = "deepseek/deepseek-chat-v3-0324:free"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+
+    # SiliconFlow settings (OpenAI compatible)
+    SILICONFLOW_API_KEY: str = "sk-xywfjrfjyrsqvbcnruydhrijtiekfhehkalxxbmgpgqnccnn"
+    SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
 
     # RAG settings
     MAX_DOCUMENTS_PER_USER: int = 50
@@ -122,6 +126,9 @@ class Settings(BaseSettings):
         self._check_default_secret(
             "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
         )
+        # Optionally add checks for API keys if needed
+        # self._check_default_secret("OPENROUTER_API_KEY", self.OPENROUTER_API_KEY)
+        # self._check_default_secret("SILICONFLOW_API_KEY", self.SILICONFLOW_API_KEY)
 
         return self
 

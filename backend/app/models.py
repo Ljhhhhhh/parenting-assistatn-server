@@ -225,6 +225,7 @@ class ChatHistoryCreate(ChatHistoryBase):
 
 
 class ChatHistory(ChatHistoryBase, table=True):
+    __tablename__ = "chat_history"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id")
     user: User = Relationship(back_populates="chat_histories")

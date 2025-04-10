@@ -7,10 +7,9 @@ import uuid
 
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredHTMLLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-# from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_core.embeddings import Embeddings
+from langchain_openai import OpenAIEmbeddings
 import httpx
 import numpy as np
 
@@ -24,70 +23,15 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 
 
-class OpenRouterEmbeddings(Embeddings):
-    """OpenRouter embeddings wrapper."""
+# Initialize embedding function (will use OpenAIEmbeddings)
+embedding_function = OpenAIEmbeddings(
+    openai_api_base=settings.SILICONFLOW_BASE_URL,
+    openai_api_key=settings.SILICONFLOW_API_KEY,
+    model="BAAI/bge-m3" # Specify the SiliconFlow model name
+    # Note: You might need other parameters depending on your specific needs,
+    # e.g., chunk_size if dealing with very large documents.
+)
 
-    def __init__(
-        self,
-        api_key: str = settings.OPENROUTER_API_KEY,
-        base_url: str = settings.OPENROUTER_BASE_URL,
-        model: str = "openai/text-embedding-3-small"
-    ):
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model = model
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed documents using OpenRouter API."""
-        embeddings = []
-
-        # Process in batches to avoid API limits
-        batch_size = 20
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i+batch_size]
-            batch_embeddings = self._get_embeddings(batch)
-            embeddings.extend(batch_embeddings)
-
-        return embeddings
-
-    def embed_query(self, text: str) -> List[float]:
-        """Embed a query using OpenRouter API."""
-        return self._get_embeddings([text])[0]
-
-    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings from OpenRouter API."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": settings.FRONTEND_HOST,
-            "X-Title": settings.PROJECT_NAME,
-        }
-
-        payload = {
-            "model": self.model,
-            "input": texts,
-        }
-
-        try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    f"{self.base_url}/embeddings",
-                    headers=headers,
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                # Extract embeddings from response
-                embeddings = [item["embedding"] for item in data["data"]]
-                return embeddings
-
-        except Exception as e:
-            raise ValueError(f"Error calling OpenRouter API: {str(e)}")
-
-
-# Initialize embedding function
-embedding_function = OpenRouterEmbeddings()
 
 # Initialize Chroma vector store
 CHROMA_PERSIST_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "chroma_db")

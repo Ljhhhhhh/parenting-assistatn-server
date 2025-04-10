@@ -8,7 +8,7 @@ email-validator>=2.2.0
 python-multipart>=0.0.10
 
 # Database
-psycopg>=3.2.0
+psycopg[binary]
 alembic>=1.13.0
 
 # Security
@@ -19,14 +19,28 @@ bcrypt>=4.0.1
 # Email
 emails>=0.6
 jinja2>=3.1.4
+pydantic-extra-types
 
-# RAG System
-langchain>=0.1.0
-langchain-core>=0.1.0
-langchain-community>=0.1.0
-langchain-chroma>=0.1.0
-chromadb>=0.4.0
-httpx>=0.27.0
-pypdf>=4.0.0
-docx2txt>=0.8
-unstructured>=0.12.0
+# Celery
+celery[redis]==5.3.6
+flower
+
+# Langchain related
+langchain
+langchain-community
+langchain-openai
+langchain-chroma
+langchain-text-splitters
+
+# LLM related
+openai
+openrouter
+
+# RAG Document Loaders
+docx2txt
+pypdf
+unstructured[html] # Use `pip install "unstructured[html]"`
+
+# Optional: For development
+pytest
+pytest-cov
