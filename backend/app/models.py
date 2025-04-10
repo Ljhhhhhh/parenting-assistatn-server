@@ -1,7 +1,9 @@
 import uuid
+from datetime import datetime, date
+from typing import List, Dict, Any
 
 from pydantic import EmailStr
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, JSON
 
 
 # Shared properties
@@ -44,6 +46,8 @@ class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
+    children: list["Child"] = Relationship(back_populates="parent", cascade_delete=True)
+    chat_histories: list["ChatHistory"] = Relationship(back_populates="user", cascade_delete=True)
 
 
 # Properties to return via API, id is always required
@@ -90,6 +94,171 @@ class ItemPublic(ItemBase):
 class ItemsPublic(SQLModel):
     data: list[ItemPublic]
     count: int
+
+
+# Child models
+class ChildBase(SQLModel):
+    name: str = Field(max_length=255)
+    birthday: date
+    gender: str = Field(max_length=10)
+
+
+class ChildCreate(ChildBase):
+    pass
+
+
+class ChildUpdate(SQLModel):
+    name: str | None = Field(default=None, max_length=255)
+    birthday: date | None = None
+    gender: str | None = Field(default=None, max_length=10)
+
+
+class Child(ChildBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    parent_id: uuid.UUID = Field(foreign_key="user.id")
+    parent: User = Relationship(back_populates="children")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    growth_records: list["GrowthRecord"] = Relationship(back_populates="child", cascade_delete=True)
+    chat_histories: list["ChatHistory"] = Relationship(back_populates="child", cascade_delete=True)
+
+
+class ChildPublic(ChildBase):
+    id: uuid.UUID
+    parent_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChildrenPublic(SQLModel):
+    data: list[ChildPublic]
+    count: int
+
+
+# Growth record models
+class GrowthRecordBase(SQLModel):
+    record_type: str = Field(max_length=50)  # e.g., feeding, sleep, diaper, etc.
+    record_data: Dict[str, Any] = Field(sa_type=JSON)
+    recorded_at: datetime
+    notes: str | None = None
+
+
+class GrowthRecordCreate(GrowthRecordBase):
+    child_id: uuid.UUID
+
+
+class GrowthRecordUpdate(SQLModel):
+    record_type: str | None = Field(default=None, max_length=50)
+    record_data: Dict[str, Any] | None = None
+    recorded_at: datetime | None = None
+    notes: str | None = None
+
+
+class GrowthRecord(GrowthRecordBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    child_id: uuid.UUID = Field(foreign_key="child.id")
+    child: Child = Relationship(back_populates="growth_records")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    attachments: List[str] | None = Field(default=None, sa_type=JSON)
+
+
+class GrowthRecordPublic(GrowthRecordBase):
+    id: uuid.UUID
+    child_id: uuid.UUID
+    created_at: datetime
+    attachments: List[str] | None = None
+
+
+class GrowthRecordsPublic(SQLModel):
+    data: list[GrowthRecordPublic]
+    count: int
+
+
+# Document models
+class DocumentBase(SQLModel):
+    title: str = Field(max_length=255)
+    description: str | None = Field(default=None)
+    file_type: str = Field(max_length=20)  # e.g., pdf, docx, html
+    status: str = Field(max_length=20, default="active")  # active, deleted, etc.
+
+
+class DocumentCreate(DocumentBase):
+    pass
+
+
+class DocumentUpdate(SQLModel):
+    title: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    status: str | None = Field(default=None, max_length=20)
+
+
+class Document(DocumentBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    filename: str = Field(max_length=255)
+    upload_timestamp: datetime = Field(default_factory=datetime.utcnow)
+    doc_metadata: Dict[str, Any] | None = Field(default=None, sa_type=JSON)
+
+
+class DocumentPublic(DocumentBase):
+    id: uuid.UUID
+    filename: str
+    upload_timestamp: datetime
+    doc_metadata: Dict[str, Any] | None = None
+
+
+class DocumentsPublic(SQLModel):
+    data: list[DocumentPublic]
+    count: int
+
+
+# Chat history models
+class ChatHistoryBase(SQLModel):
+    session_id: str = Field(max_length=50)
+    user_query: str
+    ai_response: str
+    model: str = Field(max_length=50)
+
+
+class ChatHistoryCreate(ChatHistoryBase):
+    user_id: uuid.UUID
+    child_id: uuid.UUID | None = None
+
+
+class ChatHistory(ChatHistoryBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user: User = Relationship(back_populates="chat_histories")
+    child_id: uuid.UUID | None = Field(default=None, foreign_key="child.id")
+    child: Child | None = Relationship(back_populates="chat_histories")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    sources: List[str] | None = Field(default=None, sa_type=JSON)  # References to source documents
+
+
+class ChatHistoryPublic(ChatHistoryBase):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    child_id: uuid.UUID | None = None
+    created_at: datetime
+    sources: List[str] | None = None
+
+
+class ChatHistoriesPublic(SQLModel):
+    data: list[ChatHistoryPublic]
+    count: int
+
+
+# Chat request/response models
+class ChatRequest(SQLModel):
+    question: str
+    session_id: str | None = None
+    child_id: uuid.UUID | None = None
+    model: str = Field(default="openai/gpt-4o-mini", max_length=100)
+
+
+class ChatResponse(SQLModel):
+    answer: str
+    session_id: str
+    sources: List[Dict[str, Any]] | None = None
 
 
 # Generic message

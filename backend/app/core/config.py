@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
+    # LLM settings
+    OPENROUTER_API_KEY: str = ""
+    DEFAULT_LLM_MODEL: str = "openai/gpt-4o-mini"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+
+    # RAG settings
+    MAX_DOCUMENTS_PER_USER: int = 50
+    MAX_DOCUMENT_SIZE_MB: int = 10
+
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
     ] = []
