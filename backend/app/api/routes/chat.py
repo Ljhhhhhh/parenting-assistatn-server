@@ -4,8 +4,10 @@ API routes for chat functionality.
 from typing import Any, List, Dict
 import uuid
 import httpx
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
@@ -13,8 +15,15 @@ from app.api.deps import get_current_active_user, get_db
 from app.models import (
     User, Child, ChatRequest, ChatResponse, ChatHistory, ChatHistoriesPublic
 )
-from app.rag.rag_chain import generate_response
+from app.rag.vectorstore import get_retriever
 from app.rag.chat_history import save_chat_interaction, get_chat_history, get_child_info
+from app.rag.rag_chain import (
+    get_openrouter_chat_model,
+    create_history_aware_retriever,
+    create_stuff_documents_chain,
+    contextualize_q_prompt,
+    qa_prompt
+)
 from app.core.config import settings
 
 
@@ -31,64 +40,134 @@ class ModelsResponse(BaseModel):
 router = APIRouter()
 
 
-@router.post("/", response_model=ChatResponse)
+@router.post("/", response_model=None)
 async def chat(
     *,
     db: Session = Depends(get_db),
     chat_request: ChatRequest,
     current_user: User = Depends(get_current_active_user),
-) -> Any:
+) -> StreamingResponse:
     """
-    Chat with the AI assistant.
+    Chat with the AI assistant (Streaming).
     """
-    # Generate session ID if not provided
     session_id = chat_request.session_id or str(uuid.uuid4())
 
-    # Get child info if child_id is provided
-    child_info = None
-    if chat_request.child_id:
-        # Check if child exists and belongs to current user
-        child = db.get(Child, chat_request.child_id)
-        if not child:
-            raise HTTPException(status_code=404, detail="Child not found")
-        if child.parent_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not enough permissions")
+    async def stream_generator():
+        full_answer = ""
+        sources = []
+        retrieved_docs = []
 
-        # Get child info
-        child_info = get_child_info(db, chat_request.child_id)
+        try:
+            # 1. Initial Setup (Child Info, History)
+            child_info = None
+            if chat_request.child_id:
+                child = db.get(Child, chat_request.child_id)
+                if not child or child.parent_id != current_user.id:
+                    # Yield an error event for the client to handle
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Child not found or not permitted'})}\n\n"
+                    return # Stop generation
+                child_info = get_child_info(db, chat_request.child_id)
 
-    # Get chat history
-    chat_history = get_chat_history(db, session_id)
+            chat_history = get_chat_history(db, session_id)
 
-    # Generate response
-    try:
-        result = await generate_response(
-            question=chat_request.question,
-            chat_history=chat_history,
-            session_id=session_id,
-            child_info=child_info,
-            model_name=chat_request.model
-        )
+            # 2. Instantiate RAG Components
+            # Ensure LLM supports streaming (LangChain's ChatOpenAI/OpenRouter usually do)
+            actual_model_name = chat_request.model or settings.DEFAULT_LLM_MODEL
+            print(f"--- Using API Key (last 5 chars): ...{settings.OPENROUTER_API_KEY[-5:]}") # 只打印最后5位以保护密钥
+            print(f"--- Using Model: {actual_model_name}")
 
-        # Save chat interaction
-        save_chat_interaction(
-            db=db,
-            user_id=current_user.id,
-            session_id=session_id,
-            user_query=chat_request.question,
-            ai_response=result["answer"],
-            model=chat_request.model,
-            child_id=chat_request.child_id,
-            sources=result.get("sources")
-        )
+            llm = get_openrouter_chat_model(
+                model=actual_model_name, # 使用已确定的模型名称
+                temperature=0.7,
+                streaming=True # Explicitly enable streaming if the function supports it
+            )
+            retriever = get_retriever(search_kwargs={"k": 3}) # Make sure get_retriever is accessible
 
-        return ChatResponse(
-            answer=result["answer"],
-            session_id=session_id,
-            sources=result.get("sources")
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            history_aware_retriever = create_history_aware_retriever(
+                llm, retriever, contextualize_q_prompt
+            )
+            question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+
+            # 3. Retrieve Documents and Send Sources
+            retriever_input = {
+                "input": chat_request.question,
+                "chat_history": chat_history
+            }
+            # Use ainvoke for async operation
+            # NOTE: The structure of Langchain chains evolves. Depending on the version,
+            # `history_aware_retriever.ainvoke` might return a rephrased question or docs.
+            # Let's assume it returns docs for now. If it returns a question, we'd need:
+            # rephrased_q = await history_aware_retriever.ainvoke(retriever_input)
+            # retrieved_docs = await retriever.ainvoke(rephrased_q['input']) # Or similar structure
+            retrieved_docs = await history_aware_retriever.ainvoke(retriever_input)
+
+            # Format sources from documents
+            sources = []
+            for doc in retrieved_docs:
+                 if hasattr(doc, 'metadata'):
+                     # Ensure metadata is serializable
+                     serializable_metadata = {k: str(v) for k, v in doc.metadata.items()}
+                     sources.append(serializable_metadata)
+
+            yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
+
+            # 4. Stream Answer
+            qa_input = {
+                "input": chat_request.question,
+                "context": retrieved_docs,
+                "chat_history": chat_history, # Include history if qa_prompt uses it
+                "child_info": str(child_info) if child_info else "No specific child information provided." # Add child_info
+            }
+
+            # Construct a chain without the default StrOutputParser for true streaming
+            # The original `question_answer_chain` (from create_stuff_documents_chain) implicitly adds StrOutputParser
+            qa_chain_without_parser = qa_prompt | llm
+
+            async for chunk in qa_chain_without_parser.astream(qa_input):
+                # Adapt based on the actual structure of chunks from astream.
+                # Common patterns:
+                # - chunk directly is a string token
+                # - chunk is AIMessageChunk(content='token')
+                # - chunk is a dict {'answer': 'token'}
+                token = "" # Default empty token
+                # Expecting AIMessageChunk directly from the LLM now
+                if hasattr(chunk, 'content'):
+                    token = chunk.content
+
+                if token:
+                    full_answer += token
+                    # Send token wrapped in JSON for easier frontend parsing
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+
+            # Indicate end of stream (optional, client can also detect closure)
+            yield f"event: end\ndata: Stream ended\n\n"
+
+        except Exception as e:
+            import traceback
+            print(f"Error during streaming: {e}\n{traceback.format_exc()}") # Log the error server-side
+             # Yield an error event to the client
+            yield f"event: error\ndata: {json.dumps({'detail': f'An error occurred: {str(e)}'})}\n\n"
+            # Stop the generator by returning
+            return
+        finally:
+            # 5. Save Interaction (always try to save if full_answer was populated)
+            # This runs after the stream finishes or if an error occurred after some answer was generated
+            if full_answer: # Only save if we got some answer
+                 try:
+                      save_chat_interaction(
+                          db=db,
+                          user_id=current_user.id,
+                          session_id=session_id,
+                          user_query=chat_request.question,
+                          ai_response=full_answer, # Save the complete answer
+                          model=chat_request.model or settings.DEFAULT_LLM_MODEL,
+                          child_id=chat_request.child_id,
+                          sources=sources # Save the retrieved sources
+                      )
+                 except Exception as db_error:
+                      print(f"Error saving chat interaction: {db_error}") # Log DB save error
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 @router.get("/history", response_model=ChatHistoriesPublic)
