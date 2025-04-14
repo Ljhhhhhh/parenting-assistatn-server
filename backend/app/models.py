@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel, JSON
@@ -121,6 +121,7 @@ class Child(ChildBase, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     growth_records: list["GrowthRecord"] = Relationship(back_populates="child", cascade_delete=True)
     chat_histories: list["ChatHistory"] = Relationship(back_populates="child", cascade_delete=True)
+    child_details: list["ChildDetail"] = Relationship(back_populates="child", cascade_delete=True)
 
 
 class ChildPublic(ChildBase):
@@ -281,3 +282,46 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=40)
+
+
+# Child detail models
+class ChildDetailBase(SQLModel):
+    detail_type: str = Field(max_length=50)  # e.g., interest, milestone, daily_event, preference
+    content: str  # The actual detail content
+    tags: List[str] = Field(default=[], sa_type=JSON)  # Tags for categorization
+    importance: int = Field(default=5, ge=1, le=10)  # Importance level (1-10)
+
+
+class ChildDetailCreate(ChildDetailBase):
+    child_id: uuid.UUID
+    recorded_at: Optional[datetime] = None
+
+
+class ChildDetailUpdate(SQLModel):
+    detail_type: Optional[str] = Field(default=None, max_length=50)
+    content: Optional[str] = None
+    tags: Optional[List[str]] = None
+    importance: Optional[int] = Field(default=None, ge=1, le=10)
+
+
+class ChildDetail(ChildDetailBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    child_id: uuid.UUID = Field(foreign_key="child.id")
+    child: Child = Relationship(back_populates="child_details")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    recorded_at: datetime = Field(default_factory=datetime.utcnow)  # When the detail was recorded/observed
+    embedding_id: Optional[str] = None  # ID in the vector store if embedded
+
+
+class ChildDetailPublic(ChildDetailBase):
+    id: uuid.UUID
+    child_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    recorded_at: datetime
+
+
+class ChildDetailsPublic(SQLModel):
+    data: list[ChildDetailPublic]
+    count: int

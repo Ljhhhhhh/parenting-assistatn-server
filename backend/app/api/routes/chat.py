@@ -66,7 +66,8 @@ async def chat(
                     # Yield an error event for the client to handle
                     yield f"event: error\ndata: {json.dumps({'detail': 'Child not found or not permitted'})}\n\n"
                     return # Stop generation
-                child_info = get_child_info(db, chat_request.child_id)
+                # Pass the user's question to get relevant child details
+                child_info = get_child_info(db, chat_request.child_id, query=chat_request.question)
 
             chat_history = get_chat_history(db, session_id)
 
