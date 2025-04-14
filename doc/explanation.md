@@ -164,3 +164,14 @@ sequenceDiagram
 ---
 
 希望这些图和解释能帮助你更好地理解 `chat.py` 模块中各个接口的工作流程！如果有任何不清楚的地方，随时问我。
+
+---
+
+## 创建和管理儿童信息：
+
+1.  **获取用户认证 Token:** 通过登录接口 (`/api/v1/login/access-token`) 获取。
+2.  **创建:** 向 `POST /api/v1/children/` 发送包含儿童信息的 JSON (符合 `ChildCreate` 格式)，并在请求头中附带 Token。
+3.  **查看列表:** 向 `GET /api/v1/children/` 发送请求 (附带 Token)。
+4.  **查看单个:** 向 `GET /api/v1/children/{child_id}` 发送请求 (附带 Token)。
+5.  **更新:** 向 `PUT /api/v1/children/{child_id}` 发送包含要更新字段的 JSON (符合 `ChildUpdate` 格式)，并附带 Token。
+6.  **删除:** 向 `DELETE /api/v1/children/{child_id}` 发送请求 (附带 Token)。

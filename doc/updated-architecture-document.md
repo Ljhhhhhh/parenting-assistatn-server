@@ -155,43 +155,43 @@ class RAGSystem:
     def __init__(self):
         self.embedding_function = OpenAIEmbeddings()
         self.vectorstore = Chroma(
-            persist_directory="./chroma_db", 
+            persist_directory="./chroma_db",
             embedding_function=self.embedding_function
         )
         self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": 3})
         self.llm = ChatOpenAI(model="gpt-4o-mini")
         self.rag_chain = self._create_rag_chain()
-    
+
     def _create_rag_chain(self):
         # 创建历史感知检索器
         history_aware_retriever = create_history_aware_retriever(
-            self.llm, 
-            self.retriever, 
+            self.llm,
+            self.retriever,
             self._get_contextualize_q_prompt()
         )
-        
+
         # 创建问答链
         question_answer_chain = create_stuff_documents_chain(
-            self.llm, 
+            self.llm,
             self._get_qa_prompt()
         )
-        
+
         # 创建完整的RAG链
         return create_retrieval_chain(
-            history_aware_retriever, 
+            history_aware_retriever,
             question_answer_chain
         )
-    
+
     def answer_question(self, question: str, chat_history: List[dict], child_info: dict = None):
         # 构建上下文
         context = {
             "input": question,
             "chat_history": chat_history
         }
-        
+
         if child_info:
             context["child_info"] = child_info
-            
+
         # 调用RAG链
         return self.rag_chain.invoke(context)
 ```
@@ -295,26 +295,26 @@ def process_and_index_document(file_path: str, file_id: str, metadata: dict = No
         loader = UnstructuredHTMLLoader(file_path)
     else:
         raise ValueError(f"不支持的文件类型: {file_path}")
-    
+
     # 加载文档
     documents = loader.load()
-    
+
     # 文本分割
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000, 
+        chunk_size=1000,
         chunk_overlap=200
     )
     splits = text_splitter.split_documents(documents)
-    
+
     # 添加元数据
     for split in splits:
         split.metadata['file_id'] = file_id
         if metadata:
             split.metadata.update(metadata)
-    
+
     # 添加到向量存储
     vectorstore.add_documents(splits)
-    
+
     return len(splits)
 ```
 
@@ -375,15 +375,15 @@ class ChatResponse(BaseModel):
 async def chat(request: ChatRequest):
     # 生成会话ID（如果未提供）
     session_id = request.session_id or str(uuid4())
-    
+
     # 获取聊天历史
     chat_history = get_chat_history(session_id)
-    
+
     # 获取儿童信息（如果提供了child_id）
     child_info = None
     if request.child_id:
         child_info = get_child_info(request.child_id)
-    
+
     # 调用RAG系统
     rag_system = get_rag_system()
     result = rag_system.answer_question(
@@ -391,7 +391,7 @@ async def chat(request: ChatRequest):
         chat_history=chat_history,
         child_info=child_info
     )
-    
+
     # 记录交互
     save_chat_interaction(
         session_id=session_id,
@@ -399,7 +399,7 @@ async def chat(request: ChatRequest):
         ai_response=result["answer"],
         child_id=request.child_id
     )
-    
+
     return ChatResponse(
         answer=result["answer"],
         session_id=session_id,
@@ -412,19 +412,19 @@ async def upload_document(file: UploadFile = File(...)):
     # 检查文件类型
     allowed_extensions = ['.pdf', '.docx', '.html']
     file_extension = os.path.splitext(file.filename)[1].lower()
-    
+
     if file_extension not in allowed_extensions:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"不支持的文件类型。允许的类型有: {', '.join(allowed_extensions)}"
         )
-    
+
     # 保存临时文件
     temp_file_path = f"temp_{file.filename}"
     try:
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
+
         # 创建文档记录
         file_id = str(uuid4())
         metadata = {
@@ -432,17 +432,17 @@ async def upload_document(file: UploadFile = File(...)):
             "file_type": file_extension[1:],
             "upload_timestamp": datetime.utcnow().isoformat()
         }
-        
+
         # 保存文档元数据
         save_document_metadata(file_id, metadata)
-        
+
         # 处理并索引文档
         chunk_count = process_and_index_document(
             file_path=temp_file_path,
             file_id=file_id,
             metadata=metadata
         )
-        
+
         return {
             "message": f"文件 {file.filename} 已成功上传并索引。",
             "file_id": file_id,
@@ -484,14 +484,14 @@ def ai_safety_middleware(response: str) -> str:
     # 检查医疗建议
     if contains_medical_terms(response):
         response = add_medical_disclaimer(response)
-    
+
     # 检查敏感内容
     if contains_sensitive_content(response):
         response = filter_sensitive_content(response)
-    
+
     # 添加通用免责声明
     response += "\n\n注意：本回答仅供参考，不构成医疗建议。如有健康问题，请咨询专业医生。"
-    
+
     return response
 ```
 
@@ -505,21 +505,21 @@ class ResponseCache:
     def __init__(self, redis_client):
         self.redis = redis_client
         self.ttl = 3600  # 1小时缓存
-    
+
     def get_cache_key(self, question: str, child_id: str = None):
         # 创建唯一缓存键
         question_hash = hashlib.md5(question.encode()).hexdigest()
         if child_id:
             return f"ai:response:{child_id}:{question_hash}"
         return f"ai:response:{question_hash}"
-    
+
     def get_cached_response(self, question: str, child_id: str = None):
         cache_key = self.get_cache_key(question, child_id)
         cached = self.redis.get(cache_key)
         if cached:
             return json.loads(cached)
         return None
-    
+
     def cache_response(self, question: str, response: dict, child_id: str = None):
         cache_key = self.get_cache_key(question, child_id)
         self.redis.setex(
@@ -539,21 +539,21 @@ async def process_rag_request(question: str, chat_history: List[dict], child_inf
     cached_response = await get_cached_response(cache_key)
     if cached_response:
         return cached_response
-    
+
     # 异步处理RAG请求
     async with AsyncRAGProcessor() as processor:
         # 构建上下文
         context = await build_context(question, chat_history, child_info)
-        
+
         # 检索相关文档
         documents = await processor.retrieve_documents(context)
-        
+
         # 生成回答
         response = await processor.generate_answer(question, documents, chat_history)
-        
+
         # 缓存结果
         await cache_response(cache_key, response)
-        
+
         return response
 ```
 
@@ -591,7 +591,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - '8000:8000'
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/parenting
       - REDIS_URL=redis://redis:6379/0
@@ -635,29 +635,29 @@ def setup_logging():
     # 创建日志格式
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     formatter = logging.Formatter(log_format)
-    
+
     # 创建文件处理器
     file_handler = RotatingFileHandler(
-        "app.log", 
+        "app.log",
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5
     )
     file_handler.setFormatter(formatter)
-    
+
     # 创建控制台处理器
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    
+
     # 配置根日志器
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
+
     # 配置特定模块日志器
     rag_logger = logging.getLogger("rag")
     rag_logger.setLevel(logging.DEBUG)
-    
+
     return root_logger
 ```
 
@@ -668,25 +668,25 @@ def setup_logging():
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
-    
+
     # 记录请求信息
     request_id = str(uuid4())
     logging.info(f"Request {request_id} started: {request.method} {request.url.path}")
-    
+
     # 处理请求
     response = await call_next(request)
-    
+
     # 计算处理时间
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
-    
+
     # 记录响应信息
     logging.info(f"Request {request_id} completed in {process_time:.4f}s with status {response.status_code}")
-    
+
     # 记录性能指标
     if process_time > 1.0:
         logging.warning(f"Slow request {request_id}: {request.method} {request.url.path} took {process_time:.4f}s")
-    
+
     return response
 ```
 
@@ -713,23 +713,23 @@ def test_answer_question(mock_chat, mock_chroma, mock_embeddings):
     # 设置模拟对象
     mock_retriever = MagicMock()
     mock_chroma.return_value.as_retriever.return_value = mock_retriever
-    
+
     mock_chain = MagicMock()
     mock_chain.invoke.return_value = {
         "answer": "这是一个测试回答",
         "source_documents": []
     }
-    
+
     # 创建RAG系统
     with patch("rag_system.create_retrieval_chain", return_value=mock_chain):
         rag = RAGSystem()
-        
+
         # 测试回答问题
         result = rag.answer_question(
             question="测试问题",
             chat_history=[]
         )
-        
+
         # 验证结果
         assert result["answer"] == "这是一个测试回答"
         mock_chain.invoke.assert_called_once()
@@ -768,35 +768,35 @@ def test_document_upload():
 
 ## 11. MVP 实施路线图
 
-### 11.1 阶段一：基础设施搭建（2周）
+### 11.1 阶段一：基础设施搭建（2 周）
 
 - 设置开发环境
 - 实现数据库模型
-- 创建基本API框架
-- 配置Docker容器
+- 创建基本 API 框架
+- 配置 Docker 容器
 
-### 11.2 阶段二：核心功能实现（4周）
+### 11.2 阶段二：核心功能实现（4 周）
 
 - 用户认证系统
 - 儿童信息管理
 - 成长数据记录
-- RAG系统基础实现
+- RAG 系统基础实现
 
-### 11.3 阶段三：AI 能力增强（3周）
+### 11.3 阶段三：AI 能力增强（3 周）
 
 - 知识库建设
 - 提示词优化
 - 上下文理解增强
 - 答案质量提升
 
-### 11.4 阶段四：测试与优化（3周）
+### 11.4 阶段四：测试与优化（3 周）
 
 - 单元测试编写
 - 集成测试
 - 性能优化
 - 安全审查
 
-### 11.5 阶段五：部署与监控（2周）
+### 11.5 阶段五：部署与监控（2 周）
 
 - 生产环境配置
 - CI/CD 流程设置
