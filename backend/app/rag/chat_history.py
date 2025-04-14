@@ -145,7 +145,9 @@ def get_child_info(db: Session, child_id: uuid.UUID, query: Optional[str] = None
             # Format details for better readability in the prompt
             formatted_details = []
             for detail in relevant_details:
-                formatted_detail = f"- {detail['metadata']['detail_type']}: {detail['content'].split('Content: ')[1].split('\n')[0]}"
+                # Extract content first to avoid backslash in f-string
+                content_text = detail['content'].split('Content: ')[1].split('\n')[0]
+                formatted_detail = f"- {detail['metadata']['detail_type']}: {content_text}"
                 formatted_details.append(formatted_detail)
 
             child_info["relevant_details"] = formatted_details
