@@ -4,4 +4,7 @@
     <option name="sdkName" value="uv (parenting-assistant-server)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11 (parenting-assistatn-server)" project-jdk-type="Python SDK" />
+  <component name="PythonCompatibilityInspectionAdvertiser">
+    <option name="version" value="3" />
+  </component>
 </project>
