@@ -74,14 +74,28 @@ async def chat(
             # 2. Instantiate RAG Components
             # Ensure LLM supports streaming (LangChain's ChatOpenAI/OpenRouter usually do)
             actual_model_name = chat_request.model or settings.DEFAULT_LLM_MODEL
-            print(f"--- Using API Key (last 5 chars): ...{settings.OPENROUTER_API_KEY[-5:]}") # 只打印最后5位以保护密钥
+            
+            # Enhanced debugging for API key
+            if settings.OPENROUTER_API_KEY:
+                masked_key = f"...{settings.OPENROUTER_API_KEY[-5:]}" if len(settings.OPENROUTER_API_KEY) > 5 else "[INVALID KEY]"
+                print(f"--- Using API Key (last 5 chars): {masked_key}")
+            else:
+                print("--- WARNING: No OpenRouter API key found!")
+                
             print(f"--- Using Model: {actual_model_name}")
+            print(f"--- OpenRouter Base URL: {settings.OPENROUTER_BASE_URL}")
 
-            llm = get_openrouter_chat_model(
-                model=actual_model_name, # 使用已确定的模型名称
-                temperature=0.7,
-                streaming=True # Explicitly enable streaming if the function supports it
-            )
+            try:
+                llm = get_openrouter_chat_model(
+                    model=actual_model_name, # 使用已确定的模型名称
+                    temperature=0.7,
+                    streaming=True # Explicitly enable streaming if the function supports it
+                )
+            except Exception as e:
+                error_msg = f"Failed to initialize LLM: {str(e)}"
+                print(error_msg)
+                yield f"event: error\ndata: {json.dumps({'detail': error_msg})}\n\n"
+                return
             retriever = get_retriever(search_kwargs={"k": 3}) # Make sure get_retriever is accessible
 
             history_aware_retriever = create_history_aware_retriever(
@@ -145,9 +159,19 @@ async def chat(
 
         except Exception as e:
             import traceback
-            print(f"Error during streaming: {e}\n{traceback.format_exc()}") # Log the error server-side
-             # Yield an error event to the client
-            yield f"event: error\ndata: {json.dumps({'detail': f'An error occurred: {str(e)}'})}\n\n"
+            error_type = type(e).__name__
+            error_trace = traceback.format_exc()
+            
+            # Check for specific authentication errors
+            if "AuthenticationError" in error_type or "401" in str(e):
+                error_msg = "Authentication failed with OpenRouter. Please check your API key configuration."
+                print(f"OpenRouter authentication error: {e}\n{error_trace}")
+            else:
+                error_msg = f"An error occurred: {str(e)}"
+                print(f"Error during streaming: {e}\n{error_trace}") # Log the error server-side
+            
+            # Yield an error event to the client
+            yield f"event: error\ndata: {json.dumps({'detail': error_msg, 'type': error_type})}\n\n"
             # Stop the generator by returning
             return
         finally:

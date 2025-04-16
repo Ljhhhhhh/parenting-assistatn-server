@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
     # LLM settings
-    OPENROUTER_API_KEY: str = "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"
+    OPENROUTER_API_KEY: str = "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"
     DEFAULT_LLM_MODEL: str = "deepseek/deepseek-chat-v3-0324:free"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
