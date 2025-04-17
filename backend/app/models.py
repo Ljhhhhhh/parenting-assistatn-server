@@ -254,7 +254,8 @@ class ChatRequest(SQLModel):
     question: str
     session_id: str | None = None
     child_id: uuid.UUID | None = None
-    model: str = Field(default="openai/gpt-4o-mini", max_length=100)
+    model: str = Field(default="google/gemini-flash-1.5-8b", max_length=100)
+    #     deepseek/deepseek-chat-v3-0324:free
 
 
 class ChatResponse(SQLModel):
