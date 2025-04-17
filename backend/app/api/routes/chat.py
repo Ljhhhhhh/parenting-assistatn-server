@@ -124,7 +124,7 @@ async def chat(
                      serializable_metadata = {k: str(v) for k, v in doc.metadata.items()}
                      sources.append(serializable_metadata)
 
-            yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
+            yield f"{json.dumps({'sources': sources})}\n\n"
 
             # 4. Stream Answer
             qa_input = {
@@ -152,10 +152,9 @@ async def chat(
                 if token:
                     full_answer += token
                     # Send token wrapped in JSON for easier frontend parsing
-                    yield f"data: {json.dumps({'token': token})}\n\n"
+                    yield f"{json.dumps({'token': token})}\n\n"
 
-            # Indicate end of stream (optional, client can also detect closure)
-            yield f"event: end\ndata: Stream ended\n\n"
+
 
         except Exception as e:
             import traceback
