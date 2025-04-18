@@ -68,6 +68,8 @@ async def chat(
                     return # Stop generation
                 # Pass the user's question to get relevant child details
                 child_info = get_child_info(db, chat_request.child_id, query=chat_request.question)
+                print(f"Child Info: {child_info}")
+
 
             chat_history = get_chat_history(db, session_id)
 
@@ -98,6 +100,7 @@ async def chat(
                 return
             retriever = get_retriever(search_kwargs={"k": 3}) # Make sure get_retriever is accessible
 
+            # 为什么宝宝的信息没有被加载成功 child_info
             history_aware_retriever = create_history_aware_retriever(
                 llm, retriever, contextualize_q_prompt
             )
